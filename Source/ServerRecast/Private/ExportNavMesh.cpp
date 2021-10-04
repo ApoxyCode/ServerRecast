@@ -2,11 +2,11 @@
 #include "ExportNavMesh.h"
 #include "ServerRecast.h"
 #include "Navmesh/RecastHelpers.h"
-#include "Runtime/Core/Public/GenericPlatform/GenericPlatform.h"
-#include "Runtime/Navmesh/Public/Detour/DetourNavMesh.h"
-#include "Runtime/Engine/Classes/Kismet/KismetMathLibrary.h"
+#include "GenericPlatform/GenericPlatform.h"
+#include "Detour/DetourNavMesh.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "NavigationSystem.h"
-#include "RecastNavMeshGenerator.h"
+#include "NavMesh/RecastNavMeshGenerator.h"
 
 
 FServerRecastGeometryCache::FServerRecastGeometryCache(const uint8* Memory)
@@ -42,66 +42,64 @@ void FExportNavMesh::MyExportNavigationData(const FString& FileName)
 				FConvexNavAreaData Convex;
 				uint8 AreaId;
 			};
+			
 			TArray<FAreaExportData> AreaExport;
-
-			for (FNavigationOctree::TConstElementBoxIterator<FNavigationOctree::DefaultStackAllocator> It(*NavOctree, GetTotalBounds());
-				It.HasPendingElements();
-				It.Advance())
-			{
-				const FNavigationOctreeElement& Element = It.GetCurrentElement();
-				const bool bExportGeometry = Element.Data->HasGeometry() && Element.ShouldUseGeometry(GetOwner()->GetConfig());
-
-				if (bExportGeometry && Element.Data->CollisionData.Num())
-				{
-					FServerRecastGeometryCache CachedGeometry(Element.Data->CollisionData.GetData());
-					IndexBuffer.Reserve(IndexBuffer.Num() + (CachedGeometry.Header.NumFaces * 3));
-					CoordBuffer.Reserve(CoordBuffer.Num() + (CachedGeometry.Header.NumVerts * 3));
-
-					// For is invert it need for invert normals
-					for (int32 i = CachedGeometry.Header.NumFaces * 3 - 1; i >= 0 ; --i)
+			NavOctree->FindElementsWithBoundsTest(GetTotalBounds(),
+				[&](const FNavigationOctreeElement& Element)
 					{
-						IndexBuffer.Add(CachedGeometry.Indices[i] + CoordBuffer.Num() / 3);
-					}
+						const bool bExportGeometry = Element.Data->HasGeometry() && Element.ShouldUseGeometry(GetOwner()->GetConfig());
 
-					// Calcilate the Vertecs
-					for (int32 i = 0; i < CachedGeometry.Header.NumVerts * 3; i += 3) 
-					{
-						FVector Coord = FVector(
-							CachedGeometry.Verts[i] / 100.f * -1.f,
-							CachedGeometry.Verts[i + 2] / 100.f,
-							CachedGeometry.Verts[i + 1] / 100.f
-						);
-						FVector NewCoord = ChangeDirectionOfPoint(Coord);
-
-						///CoordBuffer.Add(CachedGeometry.Verts[i] / 100.f);
-						CoordBuffer.Add(NewCoord.X);
-						CoordBuffer.Add(NewCoord.Z );
-						CoordBuffer.Add(NewCoord.Y );
-					}
-				}
-				else
-				{
-					const TArray<FAreaNavModifier>& AreaMods = Element.Data->Modifiers.GetAreas();
-					for (int32 i = 0; i < AreaMods.Num(); i++)
-					{
-						FAreaExportData ExportInfo;
-						ExportInfo.AreaId = NavData->GetAreaID(AreaMods[i].GetAreaClass());
-
-						if (AreaMods[i].GetShapeType() == ENavigationShapeType::Convex)
+						if (bExportGeometry && Element.Data->CollisionData.Num())
 						{
-							AreaMods[i].GetConvex(ExportInfo.Convex);
+							FServerRecastGeometryCache CachedGeometry(Element.Data->CollisionData.GetData());
+							IndexBuffer.Reserve(IndexBuffer.Num() + (CachedGeometry.Header.NumFaces * 3));
+							CoordBuffer.Reserve(CoordBuffer.Num() + (CachedGeometry.Header.NumVerts * 3));
 
-							TArray<FVector> ConvexVerts;
-							GrowConvexHull(NavData->AgentRadius, ExportInfo.Convex.Points, ConvexVerts);
-							ExportInfo.Convex.MinZ -= NavData->CellHeight;
-							ExportInfo.Convex.MaxZ += NavData->CellHeight;
-							ExportInfo.Convex.Points = ConvexVerts;
+							// For is invert it need for invert normals
+							for (int32 i = CachedGeometry.Header.NumFaces * 3 - 1; i >= 0 ; --i)
+							{
+								IndexBuffer.Add(CachedGeometry.Indices[i] + CoordBuffer.Num() / 3);
+							}
 
-							AreaExport.Add(ExportInfo);
+							// Calcilate the Vertecs
+							for (int32 i = 0; i < CachedGeometry.Header.NumVerts * 3; i += 3) 
+							{
+								FVector Coord = FVector(
+									CachedGeometry.Verts[i] / 100.f * -1.f,
+									CachedGeometry.Verts[i + 2] / 100.f,
+									CachedGeometry.Verts[i + 1] / 100.f
+								);
+								FVector NewCoord = ChangeDirectionOfPoint(Coord);
+
+								///CoordBuffer.Add(CachedGeometry.Verts[i] / 100.f);
+								CoordBuffer.Add(NewCoord.X);
+								CoordBuffer.Add(NewCoord.Z );
+								CoordBuffer.Add(NewCoord.Y );
+							}
 						}
-					}
-				}
-			}
+						else
+						{
+							const TArray<FAreaNavModifier>& AreaMods = Element.Data->Modifiers.GetAreas();
+							for (int32 i = 0; i < AreaMods.Num(); i++)
+							{
+								FAreaExportData ExportInfo;
+								ExportInfo.AreaId = NavData->GetAreaID(AreaMods[i].GetAreaClass());
+
+								if (AreaMods[i].GetShapeType() == ENavigationShapeType::Convex)
+								{
+									AreaMods[i].GetConvex(ExportInfo.Convex);
+
+									TArray<FVector> ConvexVerts;
+									GrowConvexHull(NavData->AgentRadius, ExportInfo.Convex.Points, ConvexVerts);
+									ExportInfo.Convex.MinZ -= NavData->CellHeight;
+									ExportInfo.Convex.MaxZ += NavData->CellHeight;
+									ExportInfo.Convex.Points = ConvexVerts;
+
+									AreaExport.Add(ExportInfo);
+								}
+							}
+						}
+					});
 
 			// I don't now what doing this part
 			UWorld* NavigationWorld = GetWorld();
