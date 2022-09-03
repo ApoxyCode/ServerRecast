@@ -1,6 +1,6 @@
 # ServerRecast
 
-WARNING! This version was tested for compatibility with UE 4.21 version only!
+WARNING! This version was tested for compatibility with UE 4.27 version only!
 
 UE4 plugin for navmesh export
 
